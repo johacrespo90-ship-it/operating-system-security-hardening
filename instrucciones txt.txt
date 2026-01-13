@@ -1,0 +1,100 @@
+*Paso 1 — Verificar información del sistema.*
+
+Ejecutar los siguientes comandos y guardar evidencias:
+
+cd ~/Descargas/archivos
+uname -a > evidencias/uname.txt
+cat /etc/os-release > evidencias/os_release.txt
+id > evidencias/id.txt
+sudo -l 2>&1 | tee evidencias/sudo_l.txt.
+
+*Paso 2 — Auditoría de seguridad básica.*
+
+Recolectar información del sistema:
+
+sudo find / -perm -4000 -type f 2>/dev/null > evidencias/suid_files.txt
+sudo find / -xdev -type f -perm -0002 2>/dev/null > evidencias/world_writable_files.txt
+ls -la /etc/cron* > evidencias/cron_dirs.txt
+systemctl list-units --type=service --state=running > evidencias/running_services.txt
+sudo getcap -r / 2>/dev/null > evidencias/getcap_all.txt
+
+*Paso 3 — Cracking de contraseñas*
+
+Asegurarse de tener rockyou.txt:
+
+sudo gunzip -c /usr/share/wordlists/rockyou.txt.gz > ~/wordlists/rockyou.txt
+
+Ejecutar John the Ripper:
+
+john --format=sha512crypt --wordlist=~/wordlists/rockyou.txt user_hash.txt
+john --show user_hash.txt > evidencias/john_results.txt
+
+*Paso 4 — Control de acceso (RBAC y ABAC)*
+
+1. Crear roles y usuarios
+
+sudo groupadd rol_rrhh
+sudo groupadd rol_dev
+sudo useradd -m -s /bin/bash -G rol_rrhh bob
+sudo useradd -m -s /bin/bash -G rol_dev carla
+echo "bob:BobPass123!" | sudo chpasswd
+echo "carla:CarlaPass123!" | sudo chpasswd
+
+2. Crear carpetas y permisos
+
+sudo mkdir -p /srv/rrhh /srv/dev
+sudo chown root:rol_rrhh /srv/rrhh && sudo chmod 2770 /srv/rrhh
+sudo chown root:rol_dev /srv/dev && sudo chmod 2770 /srv/dev
+
+3. Configurar control por horario (ABAC con PAM)
+
+Editar /etc/security/time.conf:
+
+sshd;*;@rol_rrhh;MoTuWeThFr0900-1700
+login;*;@rol_rrhh;MoTuWeThFr0900-1700
+
+Y agregar en /etc/pam.d/sshd y /etc/pam.d/login:
+
+account required pam_time.so
+
+Guardar evidencia:
+
+sudo cat /etc/security/time.conf > evidencias/time_conf.txt
+
+*Paso 5 — Hardening del sistema*
+
+1. Actualizar paquetes y activar firewall:
+
+sudo apt update && sudo apt upgrade -y
+sudo apt install -y ufw
+sudo ufw default deny incoming
+sudo ufw allow 22/tcp
+sudo ufw enable
+sudo ufw status > evidencias/ufw_status.txt
+
+2. Bloquear login root por SSH:
+
+sudo sed -i 's/^#PermitRootLogin.*/PermitRootLogin no/' /etc/ssh/sshd_config
+sudo systemctl restart ssh
+
+*Paso 6 — Logging y auditoría*
+
+Revisar accesos SSH y PAM:
+
+sudo journalctl -u ssh --no-pager > evidencias/auth_log.txt
+sudo grep pam_time /var/log/syslog > evidencias/pam_time_log.txt
+
+
+Paso 7 — Script de backups automáticos
+
+Crear script /usr/local/bin/backup_practica.sh:
+
+#!/bin/bash
+SRC="/home/snapchot/practica"
+DEST="/var/backups/practica_backup/$(date +%F_%T)"
+mkdir -p "$DEST"
+rsync -av --delete "$SRC/" "$DEST/" >/var/log/backup_practica.log 2>&1
+ln -sfn "$DEST" /var/backups/practica_backup/latest
+
+
+
